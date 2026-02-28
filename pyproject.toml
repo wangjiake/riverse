@@ -25,8 +25,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/JKRiver/JKRiver"
-Repository = "https://github.com/JKRiver/riverse"
+Homepage = "https://github.com/wangjiake/JKRiver"
+Repository = "https://github.com/wangjiake/riverse"
+Documentation = "https://wangjiake.github.io/riverse-docs/"
 
 [tool.setuptools.packages.find]
 include = ["riverse*"]
