@@ -167,3 +167,14 @@ class StorageBackend(ABC):
     @abstractmethod
     def get_session_count(self, user_id: str) -> int:
         ...
+
+    # ── Memory snapshot ──
+
+    @abstractmethod
+    def save_memory_snapshot(self, user_id: str, text: str, profile_count: int = 0) -> None:
+        ...
+
+    @abstractmethod
+    def load_memory_snapshot(self, user_id: str) -> dict | None:
+        """Load latest snapshot: {"snapshot_text": str, "profile_count": int, "created_at": str}"""
+        ...

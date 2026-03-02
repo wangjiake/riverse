@@ -90,7 +90,7 @@ def generate_trajectory_summary(
         new_obs_text = f"{L('no_new_obs', language)}\n"
 
     # Historical observations
-    historical_obs = storage.load_observations(user_id, limit=200)
+    historical_obs = storage.load_observations(user_id, limit=80)
     hist_obs_text = ""
     if historical_obs:
         for o in historical_obs:

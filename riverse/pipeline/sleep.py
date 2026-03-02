@@ -20,7 +20,8 @@ This orchestrates the full 14-step memory consolidation process:
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 
 from riverse.config import RiverseConfig
 from riverse.llm.base import LLMClient
@@ -29,6 +30,7 @@ from riverse.pipeline.contradiction import cross_validate_contradictions, resolv
 from riverse.pipeline.extraction import extract_observations_and_tags, extract_events
 from riverse.pipeline.helpers import now_str
 from riverse.pipeline.maturity import calculate_maturity_decay
+from riverse.pipeline.profile_filter import prepare_profile, format_profile_text
 from riverse.pipeline.promotion import cross_verify_suspected_facts
 from riverse.pipeline.synthesis import (
     analyze_user_model,
@@ -75,10 +77,11 @@ def run_sleep(
         all_msg_ids.extend(msg_ids)
         all_convs.extend(convs)
 
-        # Step 2: Extract observations and tags
+        # Step 2: Extract observations and tags (truncated profile → top 25)
+        extract_profile, _ = prepare_profile(existing_profile, max_entries=25, language=language)
         result = extract_observations_and_tags(
             convs, llm, language,
-            existing_profile=existing_profile,
+            existing_profile=extract_profile,
             existing_tags=existing_tags,
         )
         observations_raw = result.get("observations", [])
@@ -147,9 +150,32 @@ def run_sleep(
         return None
 
     if all_observations:
-        # Step 4: Classify
+        # Step 4: Classify — dynamic profile range
+        obs_subjects = set(o.get("subject", "") for o in all_observations if o.get("subject"))
+        has_contradictions = any(o.get("type") == "contradiction" for o in all_observations)
+
+        if has_contradictions:
+            classify_profile = current_profile
+        elif len(obs_subjects) <= 3:
+            obs_categories = set(o.get("category", "") or "" for o in all_observations)
+            try:
+                three_months_ago = datetime.strptime(now, "%Y-%m-%d %H:%M:%S") - timedelta(days=90)
+                three_months_str = three_months_ago.strftime("%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError):
+                three_months_str = ""
+            classify_profile = [
+                p for p in current_profile
+                if p.get("subject") in obs_subjects
+                or p.get("category") in obs_categories
+                or (p.get("updated_at") and str(p["updated_at"]) >= three_months_str)
+            ] or current_profile
+        else:
+            classify_profile, _ = prepare_profile(
+                current_profile, max_entries=80, language=language
+            )
+
         classifications = classify_observations(
-            all_observations, current_profile, llm, language,
+            all_observations, classify_profile, llm, language,
             timeline=timeline, trajectory=trajectory,
         )
 
@@ -192,8 +218,9 @@ def run_sleep(
                     new_obs_data.append(all_observations[idx])
 
             if new_obs_data:
+                create_profile, _ = prepare_profile(current_profile, max_entries=15, language=language)
                 new_facts = create_new_facts(
-                    new_obs_data, current_profile, llm, language,
+                    new_obs_data, create_profile, llm, language,
                     trajectory=trajectory,
                 )
                 for nf in new_facts:
@@ -269,11 +296,12 @@ def run_sleep(
                     "claim": f"{fact.get('value', '?')}→{new_val}",
                 })
 
-        # Step 7: Generate strategies
+        # Step 7: Generate strategies (truncated profile → top 15)
         if changed_items:
+            strategy_profile, _ = prepare_profile(current_profile, max_entries=15, language=language)
             strategies = generate_strategies(
                 changed_items, llm, language,
-                current_profile=current_profile,
+                current_profile=strategy_profile,
                 trajectory=trajectory,
             )
             for s in strategies:
@@ -374,10 +402,12 @@ def run_sleep(
             storage.update_decay(f["id"], new_decay, reference_time=now)
             maturity_count += 1
 
-    # ── Step 12: Analyze user model ──
+    # ── Step 12: Analyze user model (truncated profile → top 20) ──
     model_count = 0
     if all_convs:
-        current_profile_for_model = storage.load_profile(user_id)
+        current_profile_for_model, _ = prepare_profile(
+            storage.load_profile(user_id), max_entries=20, language=language
+        )
         existing_model = storage.load_user_model(user_id)
         model_results = analyze_user_model(
             all_convs, llm, language,
@@ -393,17 +423,33 @@ def run_sleep(
             )
             model_count += 1
 
-    # ── Step 13: Trajectory update ──
+    # ── Step 13: Trajectory update (significant change + ≥2 sessions, or fallback ≥10) ──
     trajectory_updated = False
     total_sessions = storage.get_session_count(user_id) + len(session_convs)
     prev_session_count = trajectory.get("session_count", 0) if trajectory else 0
     sessions_since_update = total_sessions - prev_session_count
 
-    should_update = sessions_since_update >= config.trajectory_update_interval
     if not trajectory:
         current_p = storage.load_profile(user_id)
-        if current_p:
-            should_update = True
+        should_update = bool(current_p)
+    else:
+        _significant_categories = {
+            "career", "family", "education", "health", "location",
+            "职业", "家庭", "教育", "健康", "居住", "住所",
+        }
+        has_significant_change = (
+            confirmed_count > 0
+            or dispute_resolved > 0
+            or contradict_count > 0
+            or any(
+                (item.get("category", "").lower() in _significant_categories)
+                for item in changed_items
+            )
+        )
+        should_update = (
+            (has_significant_change and sessions_since_update >= 2)
+            or sessions_since_update >= 10
+        )
 
     if should_update:
         current_p = storage.load_profile(user_id)
@@ -417,6 +463,33 @@ def run_sleep(
             if trajectory_result and trajectory_result.get("life_phase"):
                 storage.save_trajectory(user_id, trajectory_result, session_count=total_sessions)
                 trajectory_updated = True
+
+    # ── Profile dedup: merge same (category, subject) entries ──
+    if new_fact_count > 0 or dispute_resolved > 0:
+        _consolidate_profile(user_id, storage, now)
+
+    # ── Generate memory snapshot ──
+    final_profile = storage.load_profile(user_id)
+    if final_profile:
+        snapshot_text = format_profile_text(
+            final_profile, max_entries=40, detail="full", language=language,
+        )
+        user_model_data = storage.load_user_model(user_id)
+        if user_model_data:
+            model_lines = [f"  {m.get('dimension', '?')}: {m.get('assessment', '?')}" for m in user_model_data]
+            snapshot_text += "\n\nUser traits:\n" + "\n".join(model_lines)
+
+        active_events = storage.load_events(user_id, top_k=5)
+        if active_events:
+            event_lines = [f"  [{e.get('category', '?')}] {e.get('summary', '')}" for e in active_events]
+            snapshot_text += "\n\nRecent events:\n" + "\n".join(event_lines)
+
+        rels = storage.load_relationships(user_id)
+        if rels:
+            rel_lines = [f"  {r.get('relation', '?')}: {r.get('name', '?')}" for r in rels[:10]]
+            snapshot_text += "\n\nRelationships:\n" + "\n".join(rel_lines)
+
+        storage.save_memory_snapshot(user_id, snapshot_text, profile_count=len(final_profile))
 
     # ── Step 14: Mark processed ──
     storage.mark_processed(all_msg_ids)
@@ -436,3 +509,31 @@ def run_sleep(
         "model_dimensions": model_count,
         "trajectory_updated": trajectory_updated,
     }
+
+
+def _consolidate_profile(user_id: str, storage: StorageBackend, now: str) -> None:
+    """Merge duplicate (category, subject) profile entries, keeping the newest."""
+    all_profile = storage.load_profile(user_id)
+
+    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for p in all_profile:
+        groups[(p.get("category", ""), p.get("subject", ""))].append(p)
+
+    for (cat, subj), entries in groups.items():
+        if len(entries) <= 1:
+            continue
+        # Sort by updated_at descending, keep newest
+        entries.sort(
+            key=lambda x: x.get("updated_at") or x.get("created_at") or "",
+            reverse=True,
+        )
+        keeper = entries[0]
+        for old in entries[1:]:
+            if old.get("id") == keeper.get("id"):
+                continue
+            if old.get("superseded_by") or old.get("end_time"):
+                continue
+            # Merge evidence from old into keeper
+            storage.add_evidence(keeper["id"], {"merged_from": old["id"]}, reference_time=now)
+            # Close old entry
+            storage.close_fact(old["id"], end_time=now)

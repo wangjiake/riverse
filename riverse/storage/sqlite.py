@@ -743,3 +743,47 @@ class SQLiteStorage(StorageBackend):
             return row["cnt"] if row else 0
         finally:
             conn.close()
+
+    # ── Memory snapshot ──
+
+    def save_memory_snapshot(self, user_id: str, text: str, profile_count: int = 0) -> None:
+        conn = self._conn()
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS memory_snapshot ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "user_id TEXT NOT NULL, "
+                "snapshot_text TEXT NOT NULL, "
+                "profile_count INTEGER DEFAULT 0, "
+                "created_at TEXT DEFAULT (datetime('now')))"
+            )
+            conn.execute(
+                "INSERT INTO memory_snapshot (user_id, snapshot_text, profile_count, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (user_id, text, profile_count, _now()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def load_memory_snapshot(self, user_id: str) -> dict | None:
+        conn = self._conn()
+        try:
+            try:
+                row = conn.execute(
+                    "SELECT snapshot_text, profile_count, created_at "
+                    "FROM memory_snapshot WHERE user_id = ? "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (user_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return None
+            if not row:
+                return None
+            return {
+                "snapshot_text": row["snapshot_text"],
+                "profile_count": row["profile_count"],
+                "created_at": row["created_at"],
+            }
+        finally:
+            conn.close()

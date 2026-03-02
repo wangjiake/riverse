@@ -137,6 +137,15 @@ CREATE TABLE IF NOT EXISTS session_summaries (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Memory snapshot (pre-compiled profile for fast access)
+CREATE TABLE IF NOT EXISTS memory_snapshot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    snapshot_text TEXT NOT NULL,
+    profile_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_conversations_user_processed ON conversations(user_id, processed);
 CREATE INDEX IF NOT EXISTS idx_user_profile_user ON user_profile(user_id, rejected);
@@ -147,3 +156,4 @@ CREATE INDEX IF NOT EXISTS idx_user_model_user ON user_model(user_id);
 CREATE INDEX IF NOT EXISTS idx_trajectory_user ON trajectory(user_id);
 CREATE INDEX IF NOT EXISTS idx_strategies_user ON strategies(user_id);
 CREATE INDEX IF NOT EXISTS idx_session_tags_user ON session_tags(user_id);
+CREATE INDEX IF NOT EXISTS idx_memory_snapshot_user ON memory_snapshot(user_id);
