@@ -53,14 +53,21 @@ def parse_json_object(raw: str) -> dict:
 
 
 def format_profile_for_llm(profile: list[dict], timeline: list[dict] | None = None,
-                           language: str = "en") -> str:
+                           language: str = "en", max_items: int = 80) -> str:
     """Format profile facts into a text block for LLM consumption."""
     L = get_label
     if not profile:
         return L("no_profile", language) + "\n"
 
+    # Sort: confirmed first, then by mention_count desc; truncate to max_items
+    sorted_profile = sorted(profile,
+                            key=lambda p: (0 if p.get("layer") == "confirmed" else 1,
+                                           -(p.get("mention_count") or 1)))
+    if max_items and len(sorted_profile) > max_items:
+        sorted_profile = sorted_profile[:max_items]
+
     text = ""
-    for p in profile:
+    for p in sorted_profile:
         ev_raw = p.get("evidence", "[]")
         if isinstance(ev_raw, str):
             try:

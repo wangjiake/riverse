@@ -139,6 +139,7 @@ def run_sleep(
     contradict_count = 0
     strategy_count = 0
     changed_items: list[dict] = []
+    affected_fact_ids: set = set()  # 增量 cross_verify / resolve_disputes 用
     now = now_str()
 
     def _find_fact(fid) -> dict | None:
@@ -193,6 +194,20 @@ def run_sleep(
         evidence_against_list = [c for c in classifications if c.get("action") == "evidence_against"]
         new_obs_cls = [c for c in classifications if c.get("action") == "new"]
 
+        # 收集本轮受影响的 fact_id（供增量 cross_verify / resolve_disputes）
+        for s in supports:
+            fid = s.get("fact_id")
+            if fid:
+                affected_fact_ids.add(fid)
+        for c in contradictions:
+            fid = c.get("fact_id")
+            if fid:
+                affected_fact_ids.add(fid)
+        for ea in evidence_against_list:
+            fid = ea.get("fact_id")
+            if fid:
+                affected_fact_ids.add(fid)
+
         # Process supports
         for s in supports:
             fact = _find_fact(s.get("fact_id"))
@@ -240,7 +255,7 @@ def run_sleep(
                             src_obs = _cnt
                             break
                     evidence = [{"observation": src_obs}] if src_obs else None
-                    storage.save_profile_fact(
+                    fact_id = storage.save_profile_fact(
                         user_id=user_id,
                         category=nf["category"],
                         subject=nf["subject"],
@@ -251,6 +266,8 @@ def run_sleep(
                         start_time=now,
                     )
                     new_fact_count += 1
+                    if fact_id:
+                        affected_fact_ids.add(fact_id)
                     changed_items.append({
                         "change_type": "new",
                         "category": nf["category"],
@@ -278,7 +295,7 @@ def run_sleep(
                 evidence_entry = {"reason": c.get("reason", "")}
                 if obs.get("content"):
                     evidence_entry["observation"] = obs["content"]
-                storage.save_profile_fact(
+                new_id = storage.save_profile_fact(
                     user_id=user_id,
                     category=fact.get("category", ""),
                     subject=fact.get("subject", ""),
@@ -289,6 +306,8 @@ def run_sleep(
                     start_time=now,
                 )
                 contradict_count += 1
+                if new_id:
+                    affected_fact_ids.add(new_id)
                 changed_items.append({
                     "change_type": "contradict",
                     "category": fact.get("category", ""),
@@ -324,8 +343,12 @@ def run_sleep(
                 except Exception:
                     pass
 
-    # ── Step 8: Cross-verify suspected facts ──
-    suspected_facts = storage.load_suspected(user_id)
+    # ── Step 8: Cross-verify suspected facts — 增量：只验证本轮受影响的 facts ──
+    all_suspected = storage.load_suspected(user_id)
+    if affected_fact_ids:
+        suspected_facts = [f for f in all_suspected if f["id"] in affected_fact_ids]
+    else:
+        suspected_facts = all_suspected
     confirmed_count = 0
     if suspected_facts:
         judgments = cross_verify_suspected_facts(suspected_facts, llm, language, trajectory=trajectory)
@@ -338,8 +361,14 @@ def run_sleep(
                 storage.confirm_fact(f["id"], reference_time=now)
                 confirmed_count += 1
 
-    # ── Step 9: Resolve disputes ──
-    disputed_pairs = storage.load_disputed(user_id)
+    # ── Step 9: Resolve disputes — 增量：只处理本轮受影响的 disputes ──
+    all_disputed = storage.load_disputed(user_id)
+    if affected_fact_ids:
+        disputed_pairs = [p for p in all_disputed
+                          if p["old"]["id"] in affected_fact_ids
+                          or p["new"]["id"] in affected_fact_ids]
+    else:
+        disputed_pairs = all_disputed
     dispute_resolved = 0
     if disputed_pairs:
         judgments = resolve_disputes_with_llm(disputed_pairs, llm, language, trajectory=trajectory)

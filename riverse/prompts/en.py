@@ -242,9 +242,25 @@ Output JSON array:
 
 {categorization_history}
 
-═══ Rules ═══
+═══ What is worth creating ═══
+Key question: If this user comes back next month, would knowing this help me respond better?
+
+Create:
+- Identity attributes (name, age, gender, nationality, residence)
+- Ongoing states (career, health issues, relationship status, active projects)
+- Stable preferences (diet habits, exercise routine, shopping preferences, communication style)
+- Significant life events (moving, job change, illness, graduation)
+
+Do NOT create:
+- One-off knowledge questions ("what is X" "how to do Y") → asked and forgotten, not a user trait
+- Temporary instructions ("translate this" "format this JSON")
+- Others' information, plans/wishes, unconfirmed opinions
+- value starting with "asking about" "learning about" "what is" → describes behavior, not an attribute
+
+═══ Format rules ═══
+- category must be a broad top-level classification (e.g. health, career, diet, residence). Put specific aspects in subject, not category.
+  Correct: category="health" subject="medication"　Wrong: category="medication method" subject="TCM info"
 - value should be a brief attribute value (city name/job title/school name), not a sentence
-- Do not create facts for others' info or plans/wishes
 - Age conversion: user says "I'm 22" → value="born around {birth_year}"
 - Hobbies: one record per hobby
 - decay_days: 3650=identity/background (name, gender, birth year, hometown, school, major), 540=residence/career/long-term hobbies/pets, 365=relationships, 120-180=medium-term interests, 60=short-term states, 14-30=temporary behaviors

@@ -71,10 +71,35 @@ def resolve_disputes_with_llm(
     if not disputed_pairs:
         return []
 
+    # Rule preprocessing
+    rule_results = []
+    llm_candidates = []
+    for pair in disputed_pairs:
+        old = pair["old"]
+        new = pair["new"]
+        new_mc = new.get("mention_count") or 1
+        old_mc = old.get("mention_count") or 1
+        new_start = new.get("start_time", "")
+        old_start = old.get("start_time", "")
+
+        # Rule 1: new mention_count>=2 and newer → accept_new
+        if new_mc >= 2 and new_start and old_start and str(new_start) > str(old_start):
+            rule_results.append({
+                "old_fact_id": old.get("id"), "new_fact_id": new.get("id"),
+                "action": "accept_new",
+                "reason": "rule: new mention>=2 and newer"
+            })
+            continue
+
+        llm_candidates.append(pair)
+
+    if not llm_candidates:
+        return rule_results
+
     all_results = []
     now = now_compact()
 
-    for pair in disputed_pairs:
+    for pair in llm_candidates:
         old = pair["old"]
         new = pair["new"]
 
@@ -130,4 +155,4 @@ def resolve_disputes_with_llm(
             if result.get("action") in ("accept_new", "reject_new", "keep"):
                 all_results.append(result)
 
-    return all_results
+    return rule_results + all_results

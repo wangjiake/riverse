@@ -20,8 +20,26 @@ def cross_verify_suspected_facts(
     if not suspected_facts:
         return []
 
-    items_text = ""
+    # Rule preprocessing: stated + mention_count>=2 → auto-confirm
+    rule_results = []
+    llm_candidates = []
     for f in suspected_facts:
+        mc = f.get("mention_count") or 1
+        if f.get("source_type") == "stated" and mc >= 2:
+            rule_results.append({"fact_id": f.get("id"), "action": "confirm",
+                                 "reason": "rule: stated+mention>=2"})
+        else:
+            llm_candidates.append(f)
+
+    if not llm_candidates:
+        return rule_results
+
+    # Sort by mention_count desc, limit to 80 for LLM
+    llm_candidates.sort(key=lambda f: -(f.get("mention_count") or 1))
+    llm_candidates = llm_candidates[:80]
+
+    items_text = ""
+    for f in llm_candidates:
         ev_raw = f.get("evidence", "[]")
         if isinstance(ev_raw, str):
             try:
@@ -68,5 +86,6 @@ def cross_verify_suspected_facts(
         {"role": "user", "content": user_content},
     ]
     raw = llm.chat(messages)
-    results = parse_json_array(raw)
-    return [r for r in results if isinstance(r, dict) and r.get("fact_id") and r.get("action")]
+    llm_results = parse_json_array(raw)
+    llm_results = [r for r in llm_results if isinstance(r, dict) and r.get("fact_id") and r.get("action")]
+    return rule_results + llm_results
