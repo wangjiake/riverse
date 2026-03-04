@@ -146,7 +146,37 @@ CREATE TABLE IF NOT EXISTS memory_snapshot (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Fact edges (knowledge network)
+CREATE TABLE IF NOT EXISTS fact_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_fact_id INTEGER NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+    target_fact_id INTEGER NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+    edge_type TEXT NOT NULL,
+    description TEXT,
+    confidence REAL DEFAULT 0.8,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(source_fact_id, target_fact_id, edge_type)
+);
+
+-- Memory clusters (vector clustering)
+CREATE TABLE IF NOT EXISTS memory_clusters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    cluster_index INTEGER NOT NULL,
+    theme TEXT,
+    centroid TEXT NOT NULL,
+    member_ids TEXT NOT NULL DEFAULT '[]',
+    member_count INTEGER DEFAULT 0,
+    representative_text TEXT,
+    embeddings_hash TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
+CREATE INDEX IF NOT EXISTS idx_fe_source ON fact_edges(source_fact_id);
+CREATE INDEX IF NOT EXISTS idx_fe_target ON fact_edges(target_fact_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_user_processed ON conversations(user_id, processed);
 CREATE INDEX IF NOT EXISTS idx_user_profile_user ON user_profile(user_id, rejected);
 CREATE INDEX IF NOT EXISTS idx_observations_user ON observations(user_id, rejected);

@@ -55,9 +55,12 @@ def run_sleep(
     L = get_label
 
     # ── Step 1: Load unprocessed conversations ──
+    MAX_SESSIONS_PER_RUN = 20
     session_convs = storage.get_unprocessed_conversations(user_id)
     if not session_convs:
         return {"status": "no_conversations", "processed": 0}
+    if len(session_convs) > MAX_SESSIONS_PER_RUN:
+        session_convs = dict(list(session_convs.items())[:MAX_SESSIONS_PER_RUN])
 
     all_msg_ids: list[int] = []
     all_convs: list[dict] = []
@@ -343,12 +346,8 @@ def run_sleep(
                 except Exception:
                     pass
 
-    # ── Step 8: Cross-verify suspected facts — 增量：只验证本轮受影响的 facts ──
-    all_suspected = storage.load_suspected(user_id)
-    if affected_fact_ids:
-        suspected_facts = [f for f in all_suspected if f["id"] in affected_fact_ids]
-    else:
-        suspected_facts = all_suspected
+    # ── Step 8: Cross-verify suspected facts ──
+    suspected_facts = storage.load_suspected(user_id)
     confirmed_count = 0
     if suspected_facts:
         judgments = cross_verify_suspected_facts(suspected_facts, llm, language, trajectory=trajectory)
@@ -360,15 +359,10 @@ def run_sleep(
             if j["action"] == "confirm":
                 storage.confirm_fact(f["id"], reference_time=now)
                 confirmed_count += 1
+                affected_fact_ids.add(f["id"])
 
-    # ── Step 9: Resolve disputes — 增量：只处理本轮受影响的 disputes ──
-    all_disputed = storage.load_disputed(user_id)
-    if affected_fact_ids:
-        disputed_pairs = [p for p in all_disputed
-                          if p["old"]["id"] in affected_fact_ids
-                          or p["new"]["id"] in affected_fact_ids]
-    else:
-        disputed_pairs = all_disputed
+    # ── Step 9: Resolve disputes ──
+    disputed_pairs = storage.load_disputed(user_id)
     dispute_resolved = 0
     if disputed_pairs:
         judgments = resolve_disputes_with_llm(disputed_pairs, llm, language, trajectory=trajectory)
@@ -378,9 +372,13 @@ def run_sleep(
             action = j["action"]
             if action == "accept_new":
                 storage.resolve_dispute(old_fid, new_fid, accept_new=True, resolution_time=now)
+                storage.delete_fact_edges_for(old_fid)
+                affected_fact_ids.add(new_fid)
                 dispute_resolved += 1
             elif action == "reject_new":
                 storage.resolve_dispute(old_fid, new_fid, accept_new=False, resolution_time=now)
+                storage.delete_fact_edges_for(new_fid)
+                affected_fact_ids.add(old_fid)
                 dispute_resolved += 1
 
     # ── Step 10: Handle expired facts ──
@@ -388,6 +386,7 @@ def run_sleep(
     stale_count = 0
     for f in expired_facts:
         storage.close_fact(f["id"], end_time=now)
+        storage.delete_fact_edges_for(f["id"])
         stale_count += 1
 
     # ── Step 11: Maturity decay ──
@@ -431,15 +430,16 @@ def run_sleep(
             storage.update_decay(f["id"], new_decay, reference_time=now)
             maturity_count += 1
 
-    # ── Step 12: Analyze user model (truncated profile → top 20) ──
+    # ── Step 12: Analyze user model (truncated profile → top 20, convs → last 50) ──
     model_count = 0
     if all_convs:
+        model_convs = all_convs[-50:] if len(all_convs) > 50 else all_convs
         current_profile_for_model, _ = prepare_profile(
             storage.load_profile(user_id), max_entries=20, language=language
         )
         existing_model = storage.load_user_model(user_id)
         model_results = analyze_user_model(
-            all_convs, llm, language,
+            model_convs, llm, language,
             current_profile=current_profile_for_model,
             existing_model=existing_model,
         )
@@ -566,3 +566,4 @@ def _consolidate_profile(user_id: str, storage: StorageBackend, now: str) -> Non
             storage.add_evidence(keeper["id"], {"merged_from": old["id"]}, reference_time=now)
             # Close old entry
             storage.close_fact(old["id"], end_time=now)
+            storage.delete_fact_edges_for(old["id"])

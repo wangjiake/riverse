@@ -223,8 +223,11 @@ class SQLiteStorage(StorageBackend):
                                (fact_id,)).fetchone()
             if not row:
                 return
+            MAX_EVIDENCE = 10
             ev = json.loads(row["evidence"] or "[]")
             ev.append(evidence_entry)
+            if len(ev) > MAX_EVIDENCE:
+                ev = ev[-MAX_EVIDENCE:]
             mc = (row["mention_count"] or 1) + 1
             decay = row["decay_days"] or 90
             new_expires = (datetime.strptime(now, "%Y-%m-%d %H:%M:%S") + timedelta(days=decay))
@@ -279,11 +282,14 @@ class SQLiteStorage(StorageBackend):
             conn.close()
 
     def load_timeline(self, user_id: str, category: str | None = None,
-                      subject: str | None = None) -> list[dict]:
+                      subject: str | None = None,
+                      include_rejected: bool = False) -> list[dict]:
         conn = self._conn()
         try:
             conditions = ["user_id = ?"]
             params: list = [user_id]
+            if not include_rejected:
+                conditions.append("rejected = 0")
             if category:
                 conditions.append("category = ?")
                 params.append(category)
@@ -690,6 +696,21 @@ class SQLiteStorage(StorageBackend):
                 (user_id,),
             ).fetchall()
             return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    # ── Fact edges ──
+
+    def delete_fact_edges_for(self, fact_id: int) -> None:
+        conn = self._conn()
+        try:
+            conn.execute(
+                "DELETE FROM fact_edges WHERE source_fact_id = ? OR target_fact_id = ?",
+                (fact_id, fact_id),
+            )
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # table may not exist yet
         finally:
             conn.close()
 

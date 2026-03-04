@@ -216,6 +216,13 @@ Judgment rules:
 - Plans/wishes ("want to go" "planning to learn") → irrelevant, don't create profile
 - new_value must be a brief attribute value (city name/job title), not a sentence
 
+Semantic matching (important! Don't just match literally — understand the attribute implied by a behavior):
+- "cleaning glasses" "wiping lenses" → support existing vision/glasses-related fact
+- "eating in Ueno" "went to Akihabara" → support existing "city: Tokyo" fact
+- "counting calories" "weighing food" → support existing diet/weight-loss fact
+- "discussing Japanese vocabulary" → support existing Japanese language fact
+- When a behavior implies an attribute that semantically relates to an existing fact, classify as support, not new
+
 Hometown vs current city (important! These are two different categories):
 - category="hometown" is a permanent anchor, moving cities NEVER contradicts hometown
 - category="city" → if profile has category="city" then contradict; if not then new
@@ -256,6 +263,14 @@ Do NOT create:
 - Temporary instructions ("translate this" "format this JSON")
 - Others' information, plans/wishes, unconfirmed opinions
 - value starting with "asking about" "learning about" "what is" → describes behavior, not an attribute
+- Daily metric fluctuations (today's weight XX, today's body fat XX) → don't create new facts each time, should be support in classify stage
+
+═══ Behavior → Attribute inference (important!) ═══
+When an observation describes a behavior, extract the lasting attribute implied, not the behavior itself:
+- "user cleaned their glasses" → category="physical" subject="vision" value="wears glasses"
+- "user spoke Japanese at convenience store" → category="language" subject="Japanese" value="daily conversation level"
+- "user discussed gym equipment" → category="fitness" subject="exercise" value="gym strength training"
+- "user calculated calories" → don't create (should support existing diet/weight-loss fact in classify)
 
 ═══ Format rules ═══
 - category must be a broad top-level classification (e.g. health, career, diet, residence). Put specific aspects in subject, not category.

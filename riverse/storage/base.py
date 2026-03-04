@@ -52,7 +52,8 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def load_timeline(self, user_id: str, category: str | None = None,
-                      subject: str | None = None) -> list[dict]:
+                      subject: str | None = None,
+                      include_rejected: bool = False) -> list[dict]:
         ...
 
     @abstractmethod
@@ -166,6 +167,13 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def get_session_count(self, user_id: str) -> int:
+        ...
+
+    # ── Fact edges ──
+
+    @abstractmethod
+    def delete_fact_edges_for(self, fact_id: int) -> None:
+        """Delete all edges where fact_id is source or target."""
         ...
 
     # ── Memory snapshot ──
