@@ -385,6 +385,8 @@ def run_sleep(
     expired_facts = storage.get_expired(user_id, reference_time=now)
     stale_count = 0
     for f in expired_facts:
+        if f.get("superseded_by") or f.get("supersedes"):
+            continue
         storage.close_fact(f["id"], end_time=now)
         storage.delete_fact_edges_for(f["id"])
         stale_count += 1
