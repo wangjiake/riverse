@@ -482,7 +482,11 @@ class SQLiteStorage(StorageBackend):
     @staticmethod
     def _is_similar_event(existing: str, new: str) -> bool:
         stopwords = {"the", "a", "an", "is", "was", "are", "in", "at", "to", "for",
-                     "user", "very", "really", "likes", "interested"}
+                     "user", "very", "really", "likes", "interested",
+                     "用户", "的", "是", "了", "在", "很", "比较", "非常",
+                     "喜欢", "感兴趣", "关注",
+                     "ユーザー", "の", "は", "が", "を", "に", "で", "と",
+                     "とても", "非常に", "かなり"}
         def clean(s: str) -> str:
             s = s.strip().lower()
             for w in stopwords:

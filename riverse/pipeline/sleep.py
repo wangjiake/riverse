@@ -564,6 +564,8 @@ def _consolidate_profile(user_id: str, storage: StorageBackend, now: str) -> Non
                 continue
             if old.get("superseded_by") or old.get("end_time"):
                 continue
+            if old.get("value", "").strip().lower() != keeper.get("value", "").strip().lower():
+                continue
             # Merge evidence from old into keeper
             storage.add_evidence(keeper["id"], {"merged_from": old["id"]}, reference_time=now)
             # Close old entry
