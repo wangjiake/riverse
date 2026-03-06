@@ -38,6 +38,8 @@ class OpenAIClient(LLMClient):
 
         try:
             resp = self.client.chat.completions.create(**kwargs)
+            if not resp.choices:
+                return ""
             return resp.choices[0].message.content or ""
         except Exception as e:
             return f"[LLM Error] {e}"

@@ -20,8 +20,11 @@ This orchestrates the full 14-step memory consolidation process:
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 from riverse.config import RiverseConfig
 from riverse.llm.base import LLMClient
@@ -55,12 +58,9 @@ def run_sleep(
     L = get_label
 
     # ── Step 1: Load unprocessed conversations ──
-    MAX_SESSIONS_PER_RUN = 20
     session_convs = storage.get_unprocessed_conversations(user_id)
     if not session_convs:
         return {"status": "no_conversations", "processed": 0}
-    if len(session_convs) > MAX_SESSIONS_PER_RUN:
-        session_convs = dict(list(session_convs.items())[:MAX_SESSIONS_PER_RUN])
 
     all_msg_ids: list[int] = []
     all_convs: list[dict] = []
@@ -344,7 +344,7 @@ def run_sleep(
                     )
                     strategy_count += 1
                 except Exception:
-                    pass
+                    logger.error("Save strategy failed", exc_info=True)
 
     # ── Step 8: Cross-verify suspected facts ──
     suspected_facts = storage.load_suspected(user_id)

@@ -490,7 +490,7 @@ class SQLiteStorage(StorageBackend):
             return s.strip()
         a, b = clean(existing), clean(new)
         if not a or not b:
-            return True
+            return False
         return a == b or a in b or b in a
 
     def load_events(self, user_id: str, top_k: int = 10) -> list[dict]:
