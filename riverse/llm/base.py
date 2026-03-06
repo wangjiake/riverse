@@ -5,6 +5,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 
+def is_llm_error(text: str) -> bool:
+    """Check if text is an LLM error message."""
+    return bool(text) and text.startswith("[LLM ")
+
+
 class LLMClient(ABC):
     """Abstract base class for LLM clients."""
 
